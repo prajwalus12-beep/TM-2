@@ -2,7 +2,7 @@ import streamlit as st
 import datetime
 import pandas as pd
 import io
-from database.queries import get_all_projects, save_project_update, get_reported_project_codes
+from database.queries import get_all_projects, save_project_update, get_reported_updates, normalize_code
 
 @st.dialog("Export Data")
 def export_dialog(df_all, df_updated):
@@ -97,8 +97,9 @@ def render_projects_page():
     filtered['job_no_numeric'] = pd.to_numeric(filtered['project_code'], errors='coerce')
     filtered = filtered.sort_values(by=['job_no_numeric', 'project_code'], ascending=[False, False]).drop(columns=['job_no_numeric'])
 
-    # Get reported codes from DB for persistent highlighting across sessions
-    reported_codes = get_reported_project_codes()
+    # Get reported updates from DB for persistent highlighting across sessions
+    reported_updates = get_reported_updates()
+    reported_codes = set(reported_updates.keys())
 
     # 3. Top Header
     col_title, col_info, col_export = st.columns([5, 3, 1.5])
@@ -229,23 +230,43 @@ def render_projects_page():
         saved_codes = st.session_state.get("saved_codes", set())
             
         def highlight_row(row):
-            # Check if row index is in currently edited keys OR if it's a saved project code
-            # OR if it's already in the database's project_reports table
-            is_edited = str(row.name) in highlight_codes
-            is_saved = str(row.name) in saved_codes
-            is_reported = str(row.name) in reported_codes
+            styles = [''] * len(row)
+            p_code = normalize_code(row.name)
             
-            # Map integer highlight_codes to project codes if necessary
-            if not is_edited and highlight_codes:
-                for h_code in highlight_codes:
-                    if str(h_code).isdigit() and h_code not in display_df.index:
-                        if display_df.index[int(h_code)] == row.name:
-                            is_edited = True
+            # 1. Check for unsaved edits in session state
+            unsaved_cols = set()
+            if editor_key in st.session_state:
+                edits_dict = st.session_state[editor_key].get("edited_rows", {})
+                
+                # Check directly and also check normalized keys
+                if p_code in edits_dict:
+                    unsaved_cols = set(edits_dict[p_code].keys())
+                else:
+                    for k, updates in edits_dict.items():
+                        if normalize_code(k) == p_code:
+                            unsaved_cols = set(updates.keys())
                             break
 
-            if is_edited or is_saved or is_reported:
-                return ['color: #d32f2f; background-color: #ffebee'] * len(row)
-            return [''] * len(row)
+            # 2. Check for historically saved codes in this session
+            is_saved = any(normalize_code(sc) == p_code for sc in saved_codes)
+            
+            # 3. Check for reported updates in DB
+            db_updated_cols = reported_updates.get(p_code, set())
+            
+            # Highlighting style
+            highlight_style = 'color: #d32f2f; background-color: #ffebee'
+            
+            for i, col_name in enumerate(row.index):
+                # Highlight if:
+                # - This cell has unsaved edits
+                # - This cell has a reported update in DB
+                # - The row was just saved (highlight Project Name for visibility, but NOT Job No)
+                if (col_name in unsaved_cols or 
+                    col_name in db_updated_cols or 
+                    (is_saved and col_name != 'project_code')):
+                    styles[i] = highlight_style
+            
+            return styles
             
         styled_df = display_df.style.apply(highlight_row, axis=1)
 

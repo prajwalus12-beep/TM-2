@@ -100,7 +100,7 @@ def add_timesheet_entry(emp_id, emp_name, project_code, project_name, date, hour
         "project_name": encrypt_data(project_name),
         "date": date.isoformat() if hasattr(date, 'isoformat') else date,
         "hours": float(hours),
-        "Phase": phase_code,
+        "phase": phase_code,
         "project_status": project_status
     }
     
@@ -110,12 +110,18 @@ def add_timesheet_entry(emp_id, emp_name, project_code, project_name, date, hour
     except Exception as e:
         return False, str(e)
 
+def normalize_code(c):
+    if c is None: return ""
+    s = str(c).strip()
+    if s.endswith('.0'): s = s[:-2]
+    return s
+
 def get_timesheets(start_date=None, end_date=None, emp_id=None, project_code=None):
     """Fetch timesheet entries with optional filters using Supabase SDK."""
     supabase = get_supabase_client()
     if not supabase: return pd.DataFrame()
     
-    query = supabase.table('timesheet').select('id, emp_id, emp_name, project_code, project_name, date, hours, Phase, project_status')
+    query = supabase.table('timesheet').select('id, emp_id, emp_name, project_code, project_name, date, hours, phase, project_status')
     
     if start_date: query = query.gte('date', start_date.isoformat() if hasattr(start_date, 'isoformat') else start_date)
     if end_date: query = query.lte('date', end_date.isoformat() if hasattr(end_date, 'isoformat') else end_date)
@@ -128,7 +134,7 @@ def get_timesheets(start_date=None, end_date=None, emp_id=None, project_code=Non
     if not data: return pd.DataFrame()
     
     # Decrypt project names
-    cols = ['id', 'emp_id', 'emp_name', 'project_code', 'project_name', 'date', 'hours', 'Phase', 'project_status']
+    cols = ['id', 'emp_id', 'emp_name', 'project_code', 'project_name', 'date', 'hours', 'phase', 'project_status']
     rows = []
     for r in data:
         rows.append([
@@ -139,7 +145,7 @@ def get_timesheets(start_date=None, end_date=None, emp_id=None, project_code=Non
             decrypt_data(r['project_name']),
             r['date'],
             r['hours'],
-            r['Phase'],
+            r['phase'],
             r['project_status']
         ])
     
@@ -171,7 +177,7 @@ def update_timesheet_entry(entry_id, emp_id, emp_name, project_code, project_nam
         "project_name": encrypt_data(project_name),
         "date": date.isoformat() if hasattr(date, 'isoformat') else date,
         "hours": float(hours),
-        "Phase": phase_code,
+        "phase": phase_code,
         "project_status": project_status
     }
     
@@ -292,49 +298,106 @@ def import_projects(df):
     if not supabase: return False, "Configuration error"
     
     try:
-        # Fetch existing project codes to determine new vs updated
-        existing_res = supabase.table('project').select('project_code').execute()
-        existing_codes = {r['project_code'] for r in (existing_res.data or [])}
+        # Fetch existing projects to compare data
+        existing_res = supabase.table('project').select('*').execute()
+        existing_data = {r['project_code']: r for r in (existing_res.data or [])}
         
-        data = []
+        data_to_upsert = []
+        codes_to_clear = []
         updated_count = 0
         new_count = 0
+        
         for _, row in df.iterrows():
-            raw_code = row.get('Job No') or row.get('Project Code')
-            if pd.isna(raw_code): 
-                code = ""
-            else:
-                code = str(raw_code).strip()
-                if code.endswith('.0'): code = code[:-2]
+            # Support both human-readable and internal column names
+            raw_code = row.get('Job No') or row.get('Project Code') or row.get('project_code')
+            code = normalize_code(raw_code)
             
             if not code: continue
             
+            # Helper to normalize any value for comparison
+            def _norm_val(v):
+                if v is None or pd.isna(v): return ""
+                s = str(v).strip()
+                if s.endswith('.0'): s = s[:-2]
+                return s
+
+            proj_name = str(row.get('Project') or row.get('project_name') or '')
+            status = row.get('Status') or row.get('status') or 'In progress'
+            priority = _norm_val(row.get('Job Priority') or row.get('priority'))
+            lead = row.get('Lead engineer') or row.get('lead_engineer')
+            trello = row.get('Trello') or row.get('trello_link')
+            start = row.get('Date Start') or row.get('start_date')
+            end = row.get('Date Finish') or row.get('end_date')
+            proto = row.get('Prototype') or row.get('prototype_link')
+            phase = row.get('Phase') or row.get('phase')
+
             record = {
                 "project_code": code,
-                "project_name": encrypt_data(str(row.get('Project', ''))),
-                "status": row.get('Status', 'In progress'),
-                "priority": row.get('Job Priority'),
-                "lead_engineer": row.get('Lead engineer'),
-                "trello_link": row.get('Trello'),
-                "start_date": row.get('Date Start'),
-                "end_date": row.get('Date Finish'),
-                "prototype_link": row.get('Prototype')
+                "project_name": encrypt_data(proj_name),
+                "status": status,
+                "priority": priority,
+                "lead_engineer": lead,
+                "trello_link": trello,
+                "start_date": start,
+                "end_date": end,
+                "prototype_link": proto,
+                "phase": phase
             }
-            data.append(_sanitize_dict(record))
-            if code in existing_codes:
+            
+            sanitized_record = _sanitize_dict(record)
+            data_to_upsert.append(sanitized_record)
+            
+            if code in existing_data:
                 updated_count += 1
+                existing = existing_data[code]
+                
+                match = True
+                fields_to_check = [
+                    ('project_name', decrypt_data(existing.get('project_name')), proj_name),
+                    ('status', existing.get('status'), status),
+                    ('priority', existing.get('priority'), priority),
+                    ('lead_engineer', existing.get('lead_engineer'), lead),
+                    ('trello_link', existing.get('trello_link'), trello),
+                    ('start_date', existing.get('start_date'), start),
+                    ('end_date', existing.get('end_date'), end),
+                    ('prototype_link', existing.get('prototype_link'), proto),
+                    ('phase', existing.get('phase'), phase)
+                ]
+                
+                for field_key, db_val, incoming_val in fields_to_check:
+                    # Deep normalization for comparison
+                    def _deep_norm(v):
+                        if v is None or pd.isna(v): return ""
+                        if isinstance(v, (datetime.date, datetime.datetime)):
+                            return v.strftime('%Y-%m-%d')
+                        s = str(v).strip()
+                        if s.endswith('.0'): s = s[:-2]
+                        # Handle potential full timestamps in strings (e.g. 2024-04-23T00:00:00)
+                        if len(s) >= 10 and s[4] == '-' and s[7] == '-':
+                            s = s[:10]
+                        return s
+                    
+                    db_str = _deep_norm(db_val)
+                    in_str = _deep_norm(incoming_val)
+                    
+                    if db_str != in_str:
+                        # Log the mismatch to console for debugging
+                        print(f"DEBUG: Import Mismatch for Project {code} | Field: {field_key} | DB: '{db_str}' | File: '{in_str}'")
+                        match = False
+                        break
+                
+                if match:
+                    codes_to_clear.append(code)
             else:
                 new_count += 1
         
-        if data:
-            supabase.table('project').upsert(data, on_conflict='project_code').execute()
+        if data_to_upsert:
+            supabase.table('project').upsert(data_to_upsert, on_conflict='project_code').execute()
             
-            # CLEAR project_reports for the imported codes to remove highlights
-            all_imported_codes = [r['project_code'] for r in data]
-            if all_imported_codes:
-                supabase.table('project_reports').delete().in_('project_code', all_imported_codes).execute()
+            if codes_to_clear:
+                supabase.table('project_reports').delete().in_('project_code', codes_to_clear).execute()
 
-        return True, f"Successfully imported {len(df)} projects ({new_count} new, {updated_count} updated)."
+        return True, f"Successfully imported {len(df)} projects ({new_count} new, {updated_count} updated). {len(codes_to_clear)} matching reports cleared."
     except Exception as e:
         return False, str(e)
 
@@ -464,17 +527,24 @@ def save_project_update(project_code, updates):
     except Exception as e:
         return False, str(e)
 
-def get_reported_project_codes():
-    """Get set of project codes that have entries in project_reports."""
+def get_reported_updates():
+    """Get a mapping of project codes to the set of columns that have been updated in project_reports."""
     supabase = get_supabase_client()
-    if not supabase: return set()
+    if not supabase: return {}
     try:
-        res = supabase.table('project_reports').select('project_code').execute()
-        codes = set()
+        res = supabase.table('project_reports').select('*').execute()
+        updates = {}
         for r in (res.data or []):
-            c = str(r['project_code']).strip()
-            if c.endswith('.0'): c = c[:-2]
-            codes.add(c)
-        return codes
+            c = normalize_code(r['project_code'])
+            
+            if c not in updates:
+                updates[c] = set()
+            
+            # Check all columns ending in _updated
+            for col, val in r.items():
+                if col.endswith('_updated') and val is True:
+                    original_col = col.replace('_updated', '')
+                    updates[c].add(original_col)
+        return updates
     except Exception:
-        return set()
+        return {}
