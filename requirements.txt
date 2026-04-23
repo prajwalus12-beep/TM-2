@@ -1,0 +1,12 @@
+streamlit
+pandas
+psycopg2-binary
+sqlalchemy
+streamlit-aggrid
+pyotp
+qrcode
+bcrypt
+cryptography
+pillow
+supabase<=2.7.4
+openpyxl

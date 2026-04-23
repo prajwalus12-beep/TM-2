@@ -1,0 +1,195 @@
+/* Global Styles */
+.main {
+    background-color: #f8fafc;
+}
+
+/* Hide Streamlit default UI elements */
+#MainMenu {
+    visibility: hidden !important;
+}
+
+footer {
+    visibility: hidden !important;
+}
+
+header {
+    background: transparent !important;
+}
+
+[data-testid="stToolbar"] {
+    visibility: hidden !important;
+}
+
+.stDeployButton {
+    display: none !important;
+}
+
+[data-testid="stDecoration"] {
+    display: none !important;
+}
+
+[data-testid="stStatusWidget"] {
+    display: none;
+}
+
+.viewerBadge_container__r5tak {
+    display: none;
+}
+
+.stDeployButton {
+    display: none !important;
+}
+
+/* Table Container Styling */
+.table-container {
+    background: white;
+    border: none;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+/* Table Header Styling */
+.table-header {
+    background-color: #f1f5f9;
+    color: #475569;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    padding: 8px 0px;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex !important;
+    align-items: center !important;
+}
+
+.table-header div {
+    padding: 0 16px !important;
+}
+
+/* Compact Table Rows */
+.table-row {
+    border-bottom: 1px solid #f1f5f9;
+    display: flex !important;
+    align-items: center !important;
+    height: 12px;
+    min-height: 12px;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* Compact Cells */
+.table-cell {
+    padding: 4px 10px !important;
+    font-size: 0.85rem;
+    line-height: 1.2;
+    white-space: nowrap !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Prevent truncation for Date */
+.date-cell {
+    text-overflow: clip !important;
+    overflow: visible !important;
+}
+
+/* Pagination Right Alignment */
+.pagination-container {
+    display: flex;
+    justify-content: flex-end;
+    padding: 10px 0;
+    gap: 5px;
+}
+
+/* Specifically target table vertical blocks to reduce gap */
+.table-container [data-testid="stVerticalBlock"]>div {
+    gap: 0px !important;
+}
+
+.table-row [data-testid="stHorizontalBlock"] {
+    gap: 0px !important;
+    padding: 0px !important;
+}
+
+/* Streamlit Button Overrides */
+div[data-testid="stHorizontalBlock"] {
+    align-items: center;
+}
+
+.stButton>button,
+[data-testid="stDownloadButton"] button,
+.stFormSubmitButton>button {
+    padding: 2px 10px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    border-radius: 6px !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    white-space: nowrap !important;
+}
+
+.stButton>button[kind="primary"],
+.stFormSubmitButton>button,
+[data-testid="stDownloadButton"] button[kind="primary"],
+button[kind="primary"] {
+    background-color: #2563EB !important;
+    color: white !important;
+    border: none !important;
+}
+
+.stButton>button[kind="primary"]:hover,
+.stFormSubmitButton>button:hover,
+[data-testid="stDownloadButton"] button[kind="primary"]:hover,
+button[kind="primary"]:hover {
+    background-color: #1D4ED8 !important;
+}
+
+.stButton>button[kind="secondary"]:hover {
+    background-color: #EFF6FF !important;
+    border-color: #2563EB !important;
+    color: #2563EB !important;
+}
+
+/* Filter Info Box */
+.filter-info-box {
+    background-color: #EFF6FF;
+    color: #1E40AF;
+    padding: 0px 12px;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    height: 38.4px;
+    display: flex;
+    align-items: center;
+    border: 1px solid transparent;
+}
+
+/* Phantom labels */
+.filter-label-phantom {
+    height: 20px !important;
+    margin: 0 0 7px 0 !important;
+    padding: 0 !important;
+    visibility: hidden;
+    line-height: 1 !important;
+}
+
+/* Center buttons in filter columns */
+.filter-button-container [data-testid="stVerticalBlock"] {
+    justify-content: flex-end !important;
+}
+
+/* White border container for Reports filter */
+.white-border-container [data-testid="stVerticalBlockBorderWrapper"] {
+    border-color: #ffffff !important;
+    background-color: #ffffff !important;
+    border-radius: 8px !important;
+    padding: 20px !important;
+}
+
+/* AgGrid Weekend Highlighting */
+.weekend-cell {
+    background-color: #f8fafc !important;
+    border-left: 1px solid #e2e8f0 !important;
+    border-right: 1px solid #e2e8f0 !important;
+}
