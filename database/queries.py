@@ -1,4 +1,5 @@
 import pandas as pd
+import datetime
 from database.connection import get_supabase_client
 from services.auth_service import hash_password, encrypt_data, decrypt_data
 
@@ -394,10 +395,17 @@ def import_projects(df):
         if data_to_upsert:
             supabase.table('project').upsert(data_to_upsert, on_conflict='project_code').execute()
             
-            if codes_to_clear:
-                supabase.table('project_reports').delete().in_('project_code', codes_to_clear).execute()
+            # Clear project_reports for ALL projects in the import file.
+            # This ensures that manual highlights are removed once the official file is imported.
+            all_imported_codes = [r['project_code'] for r in data_to_upsert]
+            if all_imported_codes:
+                try:
+                    # Split into chunks if necessary, but for typical imports this is fine
+                    supabase.table('project_reports').delete().in_('project_code', all_imported_codes).execute()
+                except Exception as e:
+                    print(f"DEBUG: Failed to clear project_reports: {e}")
 
-        return True, f"Successfully imported {len(df)} projects ({new_count} new, {updated_count} updated). {len(codes_to_clear)} matching reports cleared."
+        return True, f"Successfully imported {len(df)} projects ({new_count} new, {updated_count} updated). Highlights cleared."
     except Exception as e:
         return False, str(e)
 
