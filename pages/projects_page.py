@@ -2,42 +2,45 @@ import streamlit as st
 import datetime
 import pandas as pd
 import io
-from database.queries import get_all_projects, save_project_update, get_reported_updates, normalize_code
+from database.queries import get_all_projects, save_project_update, get_reported_updates, normalize_code, get_all_employees
 
-@st.dialog("Export Data")
+@st.dialog("Export Project Data")
 def export_dialog(df_all, df_updated):
-    st.write("Select which records you would like to export:")
+    st.write("Choose the export type for your project records:")
+    st.write("")
     
     col1, col2 = st.columns(2)
     with col1:
-        st.write("### Export All")
-        st.write(f"Export all {len(df_all)} projects")
+        st.markdown("### 📊 All Records")
+        st.caption(f"Includes all {len(df_all)} projects in the current filtered view.")
         buffer_all = io.BytesIO()
         df_all_export = df_all.copy()
         df_all_export.to_csv(buffer_all, index=False)
         st.download_button(
-            label="📥 Export All",
+            label="Download Full CSV",
             data=buffer_all.getvalue(),
             file_name=f"projects_all_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv",
             mime="text/csv",
             use_container_width=True,
-            key="export_all_btn"
+            key="export_all_btn",
+            type="primary"
         )
         
     with col2:
-        st.write("### Export Updated Only")
-        st.write(f"Export only the {len(df_updated)} modified projects")
+        st.markdown("### 📝 Changes Only")
+        st.caption(f"Includes only the {len(df_updated)} projects with recent modifications.")
         buffer_upd = io.BytesIO()
         df_updated_export = df_updated.copy()
         df_updated_export.to_csv(buffer_upd, index=False)
         st.download_button(
-            label="📥 Export Updated",
+            label="Download Updates",
             data=buffer_upd.getvalue(),
             file_name=f"projects_updated_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv",
             mime="text/csv",
             use_container_width=True,
             disabled=len(df_updated) == 0,
-            key="export_upd_btn"
+            key="export_upd_btn",
+            type="secondary"
         )
 
 def render_projects_page():
@@ -102,17 +105,18 @@ def render_projects_page():
     reported_codes = set(reported_updates.keys())
 
     # 3. Top Header
-    col_title, col_info, col_export = st.columns([5, 3, 1.5])
-    with col_title: 
+    header_col1, header_col2 = st.columns([2, 1])
+    
+    with header_col1:
         st.markdown("<h2 style='margin-bottom: 0px;'>Project Attributes</h2>", unsafe_allow_html=True)
+        st.markdown(f"<p style='font-size: 14px; color: #666; margin-top: 5px;'>Showing {len(filtered)} of {len(projs)} projects</p>", unsafe_allow_html=True)
     
-    col_info.markdown(f"<div style='text-align: right; margin-top: 20px; font-size: 14px; color: #666;'>Showing {len(filtered)} of {len(projs)} projects</div>", unsafe_allow_html=True)
-    
-    with col_export:
-        st.write("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+    with header_col2:
+        st.write("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
         btn_col1, btn_col2 = st.columns(2)
+        
         with btn_col1:
-            if st.button("📥 Export", type="primary", use_container_width=True):
+            if st.button("📥 Export", type="primary", use_container_width=True, help="Export project data to CSV"):
                 st.session_state.trigger_export = True
         
         editor_key = f"proj_editor_{st.session_state.get('editor_key_counter', 0)}"
@@ -121,9 +125,8 @@ def render_projects_page():
             has_edits = True
             
         with btn_col2:
-            if has_edits:
-                if st.button("💾 Save", type="secondary", use_container_width=True):
-                    st.session_state.trigger_save = True
+            if st.button("💾 Save", type="secondary", use_container_width=True, disabled=not has_edits, help="Save changes to the database"):
+                st.session_state.trigger_save = True
 
     # Handle Save Trigger
     if st.session_state.get("trigger_save"):
@@ -142,6 +145,10 @@ def render_projects_page():
                     actual_code = mapping_df.index[int(row_id)]
                 else:
                     actual_code = row_id
+                
+                # Convert "None" string back to None for the database
+                if updates.get('lead_engineer') == "None":
+                    updates['lead_engineer'] = None
                 
                 success, msg = save_project_update(str(actual_code), updates)
                 if success: success_count += 1
@@ -208,7 +215,12 @@ def render_projects_page():
     
     # 5. Table
     if not filtered.empty:
+        # Get all employees for lead engineer dropdown
+        all_emps_df = get_all_employees(exclude_admin=True)
+        employee_names = ["None"] + sorted([str(e).strip() for e in all_emps_df['employee_name'].dropna().unique() if str(e).strip()])
+        
         display_df = filtered.copy().set_index('project_code', drop=False)
+        display_df['lead_engineer'] = display_df['lead_engineer'].apply(lambda x: str(x).strip() if x and str(x).strip() else "None")
         
         column_order = [
             "project_code", "project_name", "lead_engineer", "priority", 
@@ -280,7 +292,7 @@ def render_projects_page():
             column_config={
                 "project_code": st.column_config.TextColumn("JOB NO"),
                 "project_name": st.column_config.TextColumn("PROJECT NAME"),
-                "lead_engineer": st.column_config.TextColumn("LEAD ENGINEER"),
+                "lead_engineer": st.column_config.SelectboxColumn("LEAD ENGINEER", options=employee_names),
                 "priority": st.column_config.TextColumn("PRIORITY"),
                 "start_date": st.column_config.DateColumn("START DATE", format="DD-MM-YYYY"),
                 "end_date": st.column_config.DateColumn("END DATE", format="DD-MM-YYYY"),
