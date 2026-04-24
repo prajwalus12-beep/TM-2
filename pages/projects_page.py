@@ -2,7 +2,67 @@ import streamlit as st
 import datetime
 import pandas as pd
 import io
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode, JsCode
 from database.queries import get_all_projects, save_project_update, get_reported_updates, normalize_code, get_all_employees
+
+STATUS_OPTIONS = ["Not started", "In progress", "Complete", "On hold", "Cancelled"]
+STATUS_COLOR_MAP = {
+    "In progress": "#2563eb",
+    "Complete": "#16a34a",
+    "On hold": "#f59e0b",
+    "Cancelled": "#dc2626",
+}
+EDITABLE_COLUMNS = [
+    "project_name", "lead_engineer", "priority", "start_date", "end_date",
+    "status", "phase", "trello_link", "prototype_link"
+]
+
+
+def _normalize_compare_value(value):
+    if value is None or pd.isna(value):
+        return ""
+    if isinstance(value, (datetime.date, datetime.datetime, pd.Timestamp)):
+        return value.strftime("%Y-%m-%d")
+    text = str(value).strip()
+    if text in {"None", "nan", "NaT"}:
+        return ""
+    if text.endswith(".0"):
+        text = text[:-2]
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        return text[:10]
+    return text
+
+
+def _normalize_for_save(column, value):
+    normalized = _normalize_compare_value(value)
+    if not normalized:
+        return None if column != "project_name" else ""
+    if column == "lead_engineer" and normalized == "None":
+        return None
+    return normalized
+
+
+def _collect_project_edits(current_df, original_df):
+    original_lookup = original_df.set_index("project_code", drop=False)
+    edits = {}
+
+    for _, row in current_df.iterrows():
+        project_code = str(row["project_code"])
+        if project_code not in original_lookup.index:
+            continue
+
+        original_row = original_lookup.loc[project_code]
+        updates = {}
+        for col in EDITABLE_COLUMNS:
+            current_value = _normalize_compare_value(row.get(col))
+            original_value = _normalize_compare_value(original_row.get(col))
+            if current_value != original_value:
+                updates[col] = _normalize_for_save(col, row.get(col))
+
+        if updates:
+            edits[project_code] = updates
+
+    return edits
 
 @st.dialog("Export Project Data")
 def export_dialog(df_all, df_updated):
@@ -119,59 +179,15 @@ def render_projects_page():
             if st.button("📥 Export", type="primary", use_container_width=True, help="Export project data to CSV"):
                 st.session_state.trigger_export = True
         
-        editor_key = f"proj_editor_{st.session_state.get('editor_key_counter', 0)}"
-        has_edits = False
-        if editor_key in st.session_state and st.session_state[editor_key].get("edited_rows"):
-            has_edits = True
-            
         with btn_col2:
-            if st.button("💾 Save", type="secondary", use_container_width=True, disabled=not has_edits, help="Save changes to the database"):
+            if st.button(
+                "💾 Save",
+                type="secondary",
+                use_container_width=True,
+                disabled=not st.session_state.get("current_project_edits"),
+                help="Save changes to the database"
+            ):
                 st.session_state.trigger_save = True
-
-    # Handle Save Trigger
-    if st.session_state.get("trigger_save"):
-        st.session_state.trigger_save = False
-        edits = st.session_state[editor_key].get("edited_rows", {})
-        
-        # Map row IDs to project codes using the filtered dataframe's index
-        # display_df uses project_code as index, so we can resolve them.
-        mapping_df = filtered.copy().set_index('project_code', drop=False)
-        
-        success_count = 0
-        for row_id, updates in edits.items():
-            try:
-                # If row_id is an integer index (as string), get the project code from that position
-                if str(row_id).isdigit() and row_id not in mapping_df.index:
-                    actual_code = mapping_df.index[int(row_id)]
-                else:
-                    actual_code = row_id
-                
-                # Convert "None" string back to None for the database
-                if updates.get('lead_engineer') == "None":
-                    updates['lead_engineer'] = None
-                
-                success, msg = save_project_update(str(actual_code), updates)
-                if success: success_count += 1
-                else: st.error(f"Error saving {actual_code}: {msg}")
-            except Exception as e:
-                st.error(f"Error resolving project for row {row_id}: {e}")
-            
-        if success_count > 0:
-            st.success(f"Successfully saved {success_count} project updates!")
-            # Add saved codes to persistent session state for highlighting
-            if "saved_codes" not in st.session_state:
-                st.session_state.saved_codes = set()
-            for row_id in edits.keys():
-                try:
-                    if str(row_id).isdigit() and row_id not in mapping_df.index:
-                        st.session_state.saved_codes.add(str(mapping_df.index[int(row_id)]))
-                    else:
-                        st.session_state.saved_codes.add(str(row_id))
-                except: pass
-            
-            # Increment counter to refresh editor, but the red will persist via saved_codes
-            st.session_state.editor_key_counter = st.session_state.get('editor_key_counter', 0) + 1
-            st.rerun()
 
     st.write("") # spacing
 
@@ -207,7 +223,8 @@ def render_projects_page():
             st.session_state.proj_pri = ""
             st.session_state.proj_phase = "All Phases"
             st.session_state.proj_stat = "All Statuses"
-            st.session_state.saved_codes = set() # Clear saved highlights too
+            st.session_state.saved_project_updates = {}
+            st.session_state.current_project_edits = {}
             
         with col_clear:
             st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
@@ -229,95 +246,142 @@ def render_projects_page():
         for col in column_order:
             if col not in display_df.columns: display_df[col] = None
             
-        # Convert date columns to date objects for st.data_editor compatibility
         for col in ["start_date", "end_date"]:
-            display_df[col] = pd.to_datetime(display_df[col], errors='coerce').dt.date
+            display_df[col] = pd.to_datetime(display_df[col], errors='coerce').dt.strftime('%Y-%m-%d').fillna("")
 
-        # Track edits AND saved updates for highlighting
-        highlight_codes = set()
-        if editor_key in st.session_state:
-            highlight_codes.update(st.session_state[editor_key].get("edited_rows", {}).keys())
-        
-        # Add historically saved codes from this session
-        saved_codes = st.session_state.get("saved_codes", set())
-            
-        def highlight_row(row):
-            styles = [''] * len(row)
-            p_code = normalize_code(row.name)
-            
-            # 1. Check for unsaved edits in session state
-            unsaved_cols = set()
-            if editor_key in st.session_state:
-                edits_dict = st.session_state[editor_key].get("edited_rows", {})
-                
-                # Check directly and also check normalized keys
-                if p_code in edits_dict:
-                    unsaved_cols = set(edits_dict[p_code].keys())
-                else:
-                    for k, updates in edits_dict.items():
-                        if normalize_code(k) == p_code:
-                            unsaved_cols = set(updates.keys())
-                            break
-
-            # 2. Check for historically saved codes in this session
-            is_saved = any(normalize_code(sc) == p_code for sc in saved_codes)
-            
-            # 3. Check for reported updates in DB
-            db_updated_cols = reported_updates.get(p_code, set())
-            
-            # Highlighting style
-            highlight_style = 'color: #d32f2f; background-color: #ffebee'
-            
-            for i, col_name in enumerate(row.index):
-                # Highlight if:
-                # - This cell has unsaved edits
-                # - This cell has a reported update in DB
-                # - The row was just saved (highlight Project Name for visibility, but NOT Job No)
-                if (col_name in unsaved_cols or 
-                    col_name in db_updated_cols or 
-                    (is_saved and col_name != 'project_code')):
-                    styles[i] = highlight_style
-            
-            return styles
-            
-        styled_df = display_df.style.apply(highlight_row, axis=1)
-
-        edited_df = st.data_editor(
-            styled_df,
-            key=editor_key,
-            use_container_width=True,
-            num_rows="fixed",
-            disabled=["project_code"],
-            column_order=column_order,
-            column_config={
-                "project_code": st.column_config.TextColumn("JOB NO"),
-                "project_name": st.column_config.TextColumn("PROJECT NAME"),
-                "lead_engineer": st.column_config.SelectboxColumn("LEAD ENGINEER", options=employee_names),
-                "priority": st.column_config.TextColumn("PRIORITY"),
-                "start_date": st.column_config.DateColumn("START DATE", format="DD-MM-YYYY"),
-                "end_date": st.column_config.DateColumn("END DATE", format="DD-MM-YYYY"),
-                "status": st.column_config.SelectboxColumn("STATUS", options=["Not started", "In progress", "Complete", "On hold"]),
-                "phase": st.column_config.SelectboxColumn("PHASE", options=["Analysis", "Design", "Development", "Testing", "Deployment", "Support"]),
-                "trello_link": st.column_config.LinkColumn("TRELLO"),
-                "prototype_link": st.column_config.LinkColumn("PROTOTYPE")
-            }
+        saved_project_updates = st.session_state.get("saved_project_updates", {})
+        grid_df = display_df[column_order].reset_index(drop=True).copy()
+        grid_df["__db_updated_cols"] = grid_df["project_code"].apply(
+            lambda code: ",".join(sorted(reported_updates.get(normalize_code(code), set())))
         )
+        grid_df["__saved_updated_cols"] = grid_df["project_code"].apply(
+            lambda code: ",".join(sorted(saved_project_updates.get(str(code), set())))
+        )
+        for col in EDITABLE_COLUMNS:
+            grid_df[f"__orig__{col}"] = grid_df[col]
+
+        cell_style = JsCode(
+            """
+            function(params) {
+                const field = params.colDef.field;
+                const normalize = (value) => {
+                    if (value === null || value === undefined) return "";
+                    let text = String(value).trim();
+                    if (text === "None" || text === "nan" || text === "NaT") return "";
+                    if (text.endsWith(".0")) text = text.slice(0, -2);
+                    if (/^\\d{4}-\\d{2}-\\d{2}T/.test(text)) text = text.slice(0, 10);
+                    return text;
+                };
+                const flaggedCols = (params.data.__db_updated_cols || "").split(",").filter(Boolean);
+                const savedCols = (params.data.__saved_updated_cols || "").split(",").filter(Boolean);
+                const originalValue = normalize(params.data["__orig__" + field]);
+                const currentValue = normalize(params.value);
+                const isChanged = originalValue !== currentValue;
+                const isFlagged = flaggedCols.includes(field) || savedCols.includes(field);
+
+                if (isChanged || isFlagged) {
+                    return {
+                        color: "#b91c1c",
+                        backgroundColor: "#fee2e2",
+                        fontWeight: "700"
+                    };
+                }
+
+                if (field === "status") {
+                    const colorMap = {
+                        "In progress": "#2563eb",
+                        "Complete": "#16a34a",
+                        "On hold": "#f59e0b",
+                        "Cancelled": "#dc2626"
+                    };
+                    if (colorMap[currentValue]) {
+                        return { color: colorMap[currentValue], fontWeight: "700" };
+                    }
+                }
+
+                return null;
+            }
+            """
+        )
+
+        gb = GridOptionsBuilder.from_dataframe(grid_df)
+        gb.configure_default_column(editable=False, sortable=True, filter=True, resizable=True)
+        gb.configure_column("project_code", header_name="JOB NO", editable=False, pinned="left", cellStyle=cell_style)
+        gb.configure_column("project_name", header_name="PROJECT NAME", editable=True, cellStyle=cell_style)
+        gb.configure_column(
+            "lead_engineer",
+            header_name="LEAD ENGINEER",
+            editable=True,
+            cellEditor="agSelectCellEditor",
+            cellEditorParams={"values": employee_names},
+            cellStyle=cell_style,
+        )
+        gb.configure_column("priority", header_name="PRIORITY", editable=True, cellStyle=cell_style)
+        gb.configure_column("start_date", header_name="START DATE", editable=True, cellStyle=cell_style)
+        gb.configure_column("end_date", header_name="END DATE", editable=True, cellStyle=cell_style)
+        gb.configure_column(
+            "status",
+            header_name="STATUS",
+            editable=True,
+            cellEditor="agSelectCellEditor",
+            cellEditorParams={"values": STATUS_OPTIONS},
+            cellStyle=cell_style,
+        )
+        gb.configure_column(
+            "phase",
+            header_name="PHASE",
+            editable=True,
+            cellEditor="agSelectCellEditor",
+            cellEditorParams={"values": ["Analysis", "Design", "Development", "Testing", "Deployment", "Support"]},
+            cellStyle=cell_style,
+        )
+        gb.configure_column("trello_link", header_name="TRELLO", editable=True, cellStyle=cell_style)
+        gb.configure_column("prototype_link", header_name="PROTOTYPE", editable=True, cellStyle=cell_style)
+        gb.configure_grid_options(rowHeight=38, suppressRowClickSelection=True)
+        for helper_col in ["__db_updated_cols", "__saved_updated_cols"] + [f"__orig__{col}" for col in EDITABLE_COLUMNS]:
+            gb.configure_column(helper_col, hide=True)
+
+        grid_response = AgGrid(
+            grid_df,
+            gridOptions=gb.build(),
+            data_return_mode=DataReturnMode.AS_INPUT,
+            update_mode=GridUpdateMode.MODEL_CHANGED,
+            allow_unsafe_jscode=True,
+            fit_columns_on_grid_load=True,
+            height=min(650, 90 + (len(grid_df) * 38)),
+            theme="streamlit",
+            reload_data=False,
+        )
+
+        edited_df = pd.DataFrame(grid_response["data"])[column_order].copy()
+        current_project_edits = _collect_project_edits(edited_df, display_df[column_order].reset_index(drop=True))
+        st.session_state.current_project_edits = current_project_edits
+
+        if st.session_state.get("trigger_save"):
+            st.session_state.trigger_save = False
+            success_count = 0
+            saved_updates = st.session_state.get("saved_project_updates", {}).copy()
+
+            for project_code, updates in current_project_edits.items():
+                success, msg = save_project_update(project_code, updates)
+                if success:
+                    success_count += 1
+                    saved_updates[project_code] = set(updates.keys())
+                else:
+                    st.error(f"Error saving {project_code}: {msg}")
+
+            st.session_state.saved_project_updates = saved_updates
+            st.session_state.current_project_edits = {}
+
+            if success_count > 0:
+                st.success(f"Successfully saved {success_count} project updates!")
+                st.rerun()
         
         # Handle Export Dialog Trigger
         if st.session_state.get("trigger_export"):
             st.session_state.trigger_export = False
-            
-            # Identify all projects that are highlighted (edited, saved, or reported)
-            all_red_ids = highlight_codes | saved_codes | reported_codes
-            resolved_red_codes = set()
-            for rid in all_red_ids:
-                if str(rid).isdigit() and rid not in edited_df.index:
-                    try: resolved_red_codes.add(edited_df.index[int(rid)])
-                    except: pass
-                else:
-                    resolved_red_codes.add(rid)
-            
-            upd_df = edited_df[edited_df.index.isin(resolved_red_codes)]
+            highlighted_codes = set(current_project_edits.keys()) | set(saved_project_updates.keys()) | set(reported_codes)
+            upd_df = edited_df[edited_df["project_code"].astype(str).isin({str(code) for code in highlighted_codes})]
             export_dialog(edited_df, upd_df)
                 
     else:
