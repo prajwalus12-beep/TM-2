@@ -336,7 +336,7 @@ def edit_form_dialog(entry_data, emp_options, current_emp_id, user_role):
         phase_options = ["Analysis", "Design", "Development", "Testing", "Deployement", "Support"]
         phase_map = {"Analysis": "1", "Design": "2", "Development": "3", "Testing": "4", "Deployement": "5", "Support": "6"}
         rev_phase_map = {v: k for k, v in phase_map.items()}
-        current_phase_label = rev_phase_map.get(str(entry_data.get('phase', '1')), "Analysis")
+        current_phase_label = rev_phase_map.get(str(entry_data.get('Phase', '1')), "Analysis")
         default_phase_idx = phase_options.index(current_phase_label) if current_phase_label in phase_options else 0
         entry_phase = st.selectbox("Phase", phase_options, index=default_phase_idx, key="edit_phase_modal")
 

@@ -1,47 +1,56 @@
 # Timesheet Management System
 
 ## Overview
-The Timesheet Management System is a comprehensive Streamlit-based application designed for efficient time tracking and project management. It provides a secure platform for employees to log their daily work hours against specific projects and for administrators to oversee operations, manage resources, and generate reports.
+The Timesheet Management System is a comprehensive Streamlit-based application designed for efficient time tracking and project management. It features a modern React-based "Project Update" tool for advanced data editing and reporting.
 
 ### Key Features
-- **User Authentication**: Secure login with CAPTCHA and automated account lockout after 5 failed attempts.
-- **Time Tracking**: Easy-to-use interface for employees to add, edit, and delete daily timesheet entries.
-- **Admin Dashboard**: Full control over employee and project management, including assignment of projects to specific resources.
-- **Reporting**: Detailed project-wise and employee-wise reports with export capabilities.
-- **Data Security**: Encryption of sensitive project information and secure password hashing (bcrypt).
-- **Timezone Aware**: Standardized UTC-based lockout system for consistent cross-region performance.
+- **Modern Project Update UI**: Custom React-based interface with inline editing, dirty-state highlighting, and infinite scrolling.
+- **User Authentication**: Secure login with CAPTCHA and automated account lockout.
+- **Time Tracking**: Easy-to-use interface for employees to log hours.
+- **Admin Dashboard**: Comprehensive management of employees and projects.
+- **Reporting**: Detailed project and employee reports with native Excel export.
+- **Data Security**: Encryption of sensitive information and secure password hashing.
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
-- Python 3.8 or higher
-- Pip (Python Package Installer)
-- Access to a Supabase database
+- **Python 3.8+**
+- **Node.js 16+ & npm** (Required for the React components)
+- **Supabase Account** (For database and authentication)
 
-### Installation
+### Installation & Setup
 
 1. **Clone the Repository**
    ```bash
    git clone <repository-url>
-   cd Timesheet-App-Version-3
+   cd Timesheet-App-version-2
    ```
 
-2. **Install Dependencies**
+2. **Python Environment Setup**
+   It is recommended to use a virtual environment:
    ```bash
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    pip install -r requirements.txt
    ```
 
-3. **Database Initialization**
-   The application uses Supabase for data storage. Ensure your database schema is set up according to the project's requirements.
+3. **React Component Setup**
+   The "Project Update" feature uses a React frontend that must be built before use:
+   ```bash
+   cd components/project_update_react/frontend
+   npm install
+   npm run build
+   cd ../../../
+   ```
 
 ---
 
 ## Configuration
 
 ### Secrets Setup
-The application requires specific credentials and keys to be configured in a `.streamlit/secrets.toml` file. Create this file in the root of your project:
+The application requires credentials in `.streamlit/secrets.toml`. Create this file in the root directory:
 
 ```toml
 [postgres]
@@ -51,35 +60,37 @@ encryption_key = "YOUR_FERNET_ENCRYPTION_KEY"
 ```
 
 > [!IMPORTANT]
-> Never commit your actual `secrets.toml` file to version control.
+> Ensure your Supabase database schema matches the provided `database.sql` files.
 
 ---
 
 ## Running the Application
 
-To start the development server, run:
-
+### Production Mode
+Once the React component is built, you can run the main application directly:
 ```bash
 streamlit run app.py
 ```
 
-The application will be accessible at `http://localhost:8501`.
-
----
-
-## Deployment
-This application is designed to be easily deployed on **Streamlit Cloud**. When deploying:
-1. Push your code to a GitHub repository.
-2. Connect the repository to Streamlit Cloud.
-3. Paste the contents of your `secrets.toml` into the **Secrets** section of the Streamlit Cloud app settings.
+### Development Mode (React)
+If you are making changes to the React component:
+1. Start the React dev server:
+   ```bash
+   cd components/project_update_react/frontend
+   npm start
+   ```
+2. The component will now hot-reload changes. For production deployment, remember to run `npm run build`.
 
 ---
 
 ## Project Structure
-- `app.py`: Main entry point and routing logic.
-- `pages/`: Individual application pages (Login, Timesheet, Reports, Admin).
-- `services/`: Core business logic including authentication (`auth_service.py`).
-- `database/`: Database connection and query logic (`queries.py`).
-- `components/`: Reusable UI components (Sidebar, Dialogs).
-- `assets/`: Static assets like CSS and images.
-- `utils/`: Utility functions (Captcha generation, data processing).
+- `app.py`: Main entry point and routing.
+- `pages/`: Individual application pages.
+  - `project_update_page_v2.py`: Host for the React Project Update tool.
+- `components/`: 
+  - `project_update_react/`: The React-Streamlit bridge.
+    - `frontend/`: React source code (CSS, JSX).
+- `database/`: Database connection and Supabase queries.
+- `services/`: Business logic (auth, etc).
+- `assets/`: Static assets and styling.
+- `utils/`: Utility functions.

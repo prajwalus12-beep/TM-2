@@ -121,7 +121,7 @@ def render_timesheet_page(user):
                 'project_name': 'Project_Name', 
                 'date': 'Date', 
                 'hours': 'Hours', 
-                'phase': 'Phase'
+                'Phase': 'Phase'
             })
             export_df['Emp_Code'] = data['emp_id']
             export_df['Date'] = pd.to_datetime(export_df['Date']).dt.strftime('%d-%m-%Y')
@@ -197,7 +197,7 @@ def render_timesheet_page(user):
             c_projname.markdown(f'<div class="table-cell" title="{row["project_name"]}">{row["project_name"]}</div>', unsafe_allow_html=True)
             c_status.markdown(f'<div class="table-cell">{row["project_status"]}</div>', unsafe_allow_html=True)
             
-            p_val = str(row.get("phase", "1"))
+            p_val = str(row.get("Phase", "1"))
             p_text = phase_labels.get(p_val, p_val)
             c_phase.markdown(f'<div class="table-cell">{p_text}</div>', unsafe_allow_html=True)
             c_hour.markdown(f'<div class="table-cell">{row["hours"]:.2f}</div>', unsafe_allow_html=True)
@@ -227,4 +227,4 @@ def render_timesheet_page(user):
         if p_next.button("▶", key="pg_next", disabled=(st.session_state.page_num == total_pages)):
             st.session_state.page_num += 1
             st.rerun()
-    else: st.info("no result")
+    else: st.info("No records found.")

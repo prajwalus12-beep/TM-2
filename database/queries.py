@@ -1,5 +1,4 @@
 import pandas as pd
-import datetime
 from database.connection import get_supabase_client
 from services.auth_service import hash_password, encrypt_data, decrypt_data
 
@@ -21,14 +20,14 @@ def get_all_employees(exclude_admin=False):
 def get_all_projects():
     """Fetch all projects using Supabase SDK."""
     supabase = get_supabase_client()
-    if not supabase: return pd.DataFrame(columns=['project_code', 'project_name', 'status', 'priority', 'lead_engineer', 'trello_link', 'start_date', 'end_date', 'phase', 'prototype_link'])
+    if not supabase: return pd.DataFrame(columns=['project_code', 'project_name', 'status', 'priority', 'lead_engineer', 'trello_link'])
     
-    res = supabase.table('project').select('project_code, project_name, status, priority, lead_engineer, trello_link, start_date, end_date, phase, prototype_link').order('project_code', desc=True).execute()
+    res = supabase.table('project').select('project_code, project_name, status, priority, lead_engineer, trello_link').order('project_code', desc=True).execute()
     data = res.data or []
     
     # Decrypt project names
-    decrypted_res = [[r['project_code'], decrypt_data(r['project_name']), r['status'], r.get('priority'), r.get('lead_engineer'), r.get('trello_link'), r.get('start_date'), r.get('end_date'), r.get('phase'), r.get('prototype_link')] for r in data]
-    return pd.DataFrame(decrypted_res, columns=['project_code', 'project_name', 'status', 'priority', 'lead_engineer', 'trello_link', 'start_date', 'end_date', 'phase', 'prototype_link'])
+    decrypted_res = [[r['project_code'], decrypt_data(r['project_name']), r['status'], r.get('priority'), r.get('lead_engineer'), r.get('trello_link')] for r in data]
+    return pd.DataFrame(decrypted_res, columns=['project_code', 'project_name', 'status', 'priority', 'lead_engineer', 'trello_link'])
 
 def get_user_by_username(username):
     """Fetch user details using Supabase SDK."""
@@ -101,7 +100,7 @@ def add_timesheet_entry(emp_id, emp_name, project_code, project_name, date, hour
         "project_name": encrypt_data(project_name),
         "date": date.isoformat() if hasattr(date, 'isoformat') else date,
         "hours": float(hours),
-        "phase": phase_code,
+        "Phase": phase_code,
         "project_status": project_status
     }
     
@@ -111,18 +110,12 @@ def add_timesheet_entry(emp_id, emp_name, project_code, project_name, date, hour
     except Exception as e:
         return False, str(e)
 
-def normalize_code(c):
-    if c is None: return ""
-    s = str(c).strip()
-    if s.endswith('.0'): s = s[:-2]
-    return s
-
 def get_timesheets(start_date=None, end_date=None, emp_id=None, project_code=None):
     """Fetch timesheet entries with optional filters using Supabase SDK."""
     supabase = get_supabase_client()
     if not supabase: return pd.DataFrame()
     
-    query = supabase.table('timesheet').select('id, emp_id, emp_name, project_code, project_name, date, hours, phase, project_status')
+    query = supabase.table('timesheet').select('id, emp_id, emp_name, project_code, project_name, date, hours, Phase, project_status')
     
     if start_date: query = query.gte('date', start_date.isoformat() if hasattr(start_date, 'isoformat') else start_date)
     if end_date: query = query.lte('date', end_date.isoformat() if hasattr(end_date, 'isoformat') else end_date)
@@ -135,7 +128,7 @@ def get_timesheets(start_date=None, end_date=None, emp_id=None, project_code=Non
     if not data: return pd.DataFrame()
     
     # Decrypt project names
-    cols = ['id', 'emp_id', 'emp_name', 'project_code', 'project_name', 'date', 'hours', 'phase', 'project_status']
+    cols = ['id', 'emp_id', 'emp_name', 'project_code', 'project_name', 'date', 'hours', 'Phase', 'project_status']
     rows = []
     for r in data:
         rows.append([
@@ -146,7 +139,7 @@ def get_timesheets(start_date=None, end_date=None, emp_id=None, project_code=Non
             decrypt_data(r['project_name']),
             r['date'],
             r['hours'],
-            r['phase'],
+            r['Phase'],
             r['project_status']
         ])
     
@@ -178,7 +171,7 @@ def update_timesheet_entry(entry_id, emp_id, emp_name, project_code, project_nam
         "project_name": encrypt_data(project_name),
         "date": date.isoformat() if hasattr(date, 'isoformat') else date,
         "hours": float(hours),
-        "phase": phase_code,
+        "Phase": phase_code,
         "project_status": project_status
     }
     
@@ -280,18 +273,9 @@ def check_assignment(emp_id, project_code):
     return len(res.data) > 0
 
 def _sanitize_dict(d):
-    """Replace any NaN/NaT values with None, and convert dates to string."""
-    sanitized = {}
-    for k, v in d.items():
-        if isinstance(v, str):
-            sanitized[k] = v
-        elif pd.isna(v):
-            sanitized[k] = None
-        elif hasattr(v, 'isoformat'):
-            sanitized[k] = v.isoformat()
-        else:
-            sanitized[k] = v
-    return sanitized
+    """Replace any NaN/NaT values with None so they serialize as JSON null."""
+    return {k: (None if pd.isna(v) else v) if not isinstance(v, str) else v
+            for k, v in d.items()}
 
 def import_projects(df):
     """Import projects using Supabase SDK. Updates existing projects by Job No."""
@@ -299,113 +283,32 @@ def import_projects(df):
     if not supabase: return False, "Configuration error"
     
     try:
-        # Fetch existing projects to compare data
-        existing_res = supabase.table('project').select('*').execute()
-        existing_data = {r['project_code']: r for r in (existing_res.data or [])}
+        # Fetch existing project codes to determine new vs updated
+        existing_res = supabase.table('project').select('project_code').execute()
+        existing_codes = {r['project_code'] for r in (existing_res.data or [])}
         
-        data_to_upsert = []
-        codes_to_clear = []
+        data = []
         updated_count = 0
         new_count = 0
-        
         for _, row in df.iterrows():
-            # Support both human-readable and internal column names
-            raw_code = row.get('Job No') or row.get('Project Code') or row.get('project_code')
-            code = normalize_code(raw_code)
-            
-            if not code: continue
-            
-            # Helper to normalize any value for comparison
-            def _norm_val(v):
-                if v is None or pd.isna(v): return ""
-                s = str(v).strip()
-                if s.endswith('.0'): s = s[:-2]
-                return s
-
-            proj_name = str(row.get('Project') or row.get('project_name') or '')
-            status = row.get('Status') or row.get('status') or 'In progress'
-            priority = _norm_val(row.get('Job Priority') or row.get('priority'))
-            lead = row.get('Lead engineer') or row.get('lead_engineer')
-            trello = row.get('Trello') or row.get('trello_link')
-            start = row.get('Date Start') or row.get('start_date')
-            end = row.get('Date Finish') or row.get('end_date')
-            proto = row.get('Prototype') or row.get('prototype_link')
-            phase = row.get('Phase') or row.get('phase')
-
+            code = str(row.get('Job No') or row.get('Project Code') or '')
             record = {
                 "project_code": code,
-                "project_name": encrypt_data(proj_name),
-                "status": status,
-                "priority": priority,
-                "lead_engineer": lead,
-                "trello_link": trello,
-                "start_date": start,
-                "end_date": end,
-                "prototype_link": proto,
-                "phase": phase
+                "project_name": encrypt_data(str(row.get('Project', ''))),
+                "status": row.get('Status', 'In progress'),
+                "priority": row.get('Job Priority'),
+                "lead_engineer": row.get('Lead engineer'),
+                "trello_link": row.get('Trello')
             }
-            
-            sanitized_record = _sanitize_dict(record)
-            data_to_upsert.append(sanitized_record)
-            
-            if code in existing_data:
+            data.append(_sanitize_dict(record))
+            if code in existing_codes:
                 updated_count += 1
-                existing = existing_data[code]
-                
-                match = True
-                fields_to_check = [
-                    ('project_name', decrypt_data(existing.get('project_name')), proj_name),
-                    ('status', existing.get('status'), status),
-                    ('priority', existing.get('priority'), priority),
-                    ('lead_engineer', existing.get('lead_engineer'), lead),
-                    ('trello_link', existing.get('trello_link'), trello),
-                    ('start_date', existing.get('start_date'), start),
-                    ('end_date', existing.get('end_date'), end),
-                    ('prototype_link', existing.get('prototype_link'), proto),
-                    ('phase', existing.get('phase'), phase)
-                ]
-                
-                for field_key, db_val, incoming_val in fields_to_check:
-                    # Deep normalization for comparison
-                    def _deep_norm(v):
-                        if v is None or pd.isna(v): return ""
-                        if isinstance(v, (datetime.date, datetime.datetime)):
-                            return v.strftime('%Y-%m-%d')
-                        s = str(v).strip()
-                        if s.endswith('.0'): s = s[:-2]
-                        # Handle potential full timestamps in strings (e.g. 2024-04-23T00:00:00)
-                        if len(s) >= 10 and s[4] == '-' and s[7] == '-':
-                            s = s[:10]
-                        return s
-                    
-                    db_str = _deep_norm(db_val)
-                    in_str = _deep_norm(incoming_val)
-                    
-                    if db_str != in_str:
-                        # Log the mismatch to console for debugging
-                        print(f"DEBUG: Import Mismatch for Project {code} | Field: {field_key} | DB: '{db_str}' | File: '{in_str}'")
-                        match = False
-                        break
-                
-                if match:
-                    codes_to_clear.append(code)
             else:
                 new_count += 1
         
-        if data_to_upsert:
-            supabase.table('project').upsert(data_to_upsert, on_conflict='project_code').execute()
-            
-            # Clear project_reports for ALL projects in the import file.
-            # This ensures that manual highlights are removed once the official file is imported.
-            all_imported_codes = [r['project_code'] for r in data_to_upsert]
-            if all_imported_codes:
-                try:
-                    # Split into chunks if necessary, but for typical imports this is fine
-                    supabase.table('project_reports').delete().in_('project_code', all_imported_codes).execute()
-                except Exception as e:
-                    print(f"DEBUG: Failed to clear project_reports: {e}")
-
-        return True, f"Successfully imported {len(df)} projects ({new_count} new, {updated_count} updated). Highlights cleared."
+        if data:
+            supabase.table('project').upsert(data, on_conflict='project_code').execute()
+        return True, f"Successfully imported {len(df)} projects ({new_count} new, {updated_count} updated)."
     except Exception as e:
         return False, str(e)
 
@@ -470,6 +373,99 @@ def import_assignments(df):
     except Exception as e:
         return False, str(e)
 
+def get_project_reports():
+    """Fetch all data from project_reports table."""
+    supabase = get_supabase_client()
+    if not supabase: return pd.DataFrame()
+    
+    res = supabase.table('project_reports').select('*').order('project_code', desc=True).execute()
+    data = res.data or []
+    if not data:
+        return pd.DataFrame()
+    return pd.DataFrame(data)
+
+def import_project_updates(df):
+    """Import project updates into project_reports using Supabase SDK."""
+    supabase = get_supabase_client()
+    if not supabase: return False, "Configuration error"
+    
+    try:
+        existing_res = supabase.table('project_reports').select('project_code').execute()
+        existing_codes = {r['project_code'] for r in (existing_res.data or [])}
+        
+        inserts = []
+        updates = []
+        for _, row in df.iterrows():
+            code = str(row.get('Job No') or row.get('Project Code') or '')
+            if not code or code.lower() == 'nan': continue
+            
+            record = {
+                "project_code": code,
+                "project_name": str(row.get('Project', '')),
+                "lead_engineer": str(row.get('Lead engineer', '')),
+                "priority": str(row.get('Job Priority', '')),
+                "status": str(row.get('Status', 'In progress')),
+                "trello_link": str(row.get('Trello', '')) if pd.notna(row.get('Trello')) else None,
+                "project_code_updated": False,
+                "project_name_updated": False,
+                "lead_engineer_updated": False,
+                "priority_updated": False,
+                "status_updated": False,
+                "trello_link_updated": False,
+                "start_date_updated": False,
+                "end_date_updated": False,
+                "phase_updated": False,
+                "prototype_link_updated": False
+            }
+            clean_record = _sanitize_dict(record)
+            
+            if code in existing_codes:
+                updates.append(clean_record)
+            else:
+                clean_record["phase"] = "Analysis" # Default for new inserts
+                inserts.append(clean_record)
+            
+        if inserts:
+            supabase.table('project_reports').insert(inserts).execute()
+            
+        for u in updates:
+            supabase.table('project_reports').update(u).eq('project_code', u['project_code']).execute()
+            
+        return True, f"Successfully imported {len(inserts)} new and updated {len(updates)} projects."
+    except Exception as e:
+        return False, str(e)
+
+def save_project_updates(edited_rows_dict, current_df):
+    """Process st.data_editor changes and save to project_reports, updating flags."""
+    supabase = get_supabase_client()
+    if not supabase: return False, "Configuration error"
+    
+    try:
+        updated_records = []
+        for row_idx, changes in edited_rows_dict.items():
+            # Get original row using index
+            orig_row = current_df.iloc[int(row_idx)]
+            proj_code = orig_row['project_code']
+            
+            update_payload = {"project_code": proj_code}
+            
+            for col, new_val in changes.items():
+                update_payload[col] = new_val
+                # Set the updated flag to true if a corresponding column exists
+                flag_col = f"{col}_updated"
+                if flag_col in current_df.columns:
+                    update_payload[flag_col] = True
+            
+            if len(update_payload) > 1: # More than just project_code
+                updated_records.append(update_payload)
+                
+        for record in updated_records:
+            supabase.table('project_reports').update(record).eq('project_code', record['project_code']).execute()
+            
+        return True, f"Successfully updated {len(updated_records)} projects."
+    except Exception as e:
+        return False, str(e)
+
 def init_db():
     """Initialize system admin if missing using Supabase SDK."""
     supabase = get_supabase_client()
@@ -495,64 +491,3 @@ def init_db():
         return True, "Database references initialized (System Admin created)"
     except Exception as e:
         return False, str(e)
-
-def save_project_update(project_code, updates):
-    """Save updates to both 'project' and 'project_reports' tables."""
-    supabase = get_supabase_client()
-    if not supabase: return False, "Configuration error"
-    
-    try:
-        # 1. Update the main 'project' table
-        db_updates = {}
-        for k, v in updates.items():
-            if k == 'project_name':
-                db_updates[k] = encrypt_data(str(v))
-            else:
-                db_updates[k] = v
-        
-        if db_updates:
-            # _sanitize_dict handles NaNs/Dates
-            clean_updates = _sanitize_dict(db_updates)
-            supabase.table('project').update(clean_updates).eq('project_code', project_code).execute()
-        
-        # 2. Insert into 'project_reports'
-        report_data = {"project_code": project_code}
-        for k, v in updates.items():
-            # In project_reports, we might store project_name encrypted or not. 
-            # To stay consistent with project table, we encrypt.
-            val = v
-            if k == 'project_name':
-                val = encrypt_data(str(v))
-            
-            report_data[k] = val
-            report_data[f"{k}_updated"] = True
-            
-        if len(report_data) > 1:
-            clean_report = _sanitize_dict(report_data)
-            supabase.table('project_reports').insert(clean_report).execute()
-        
-        return True, "Success"
-    except Exception as e:
-        return False, str(e)
-
-def get_reported_updates():
-    """Get a mapping of project codes to the set of columns that have been updated in project_reports."""
-    supabase = get_supabase_client()
-    if not supabase: return {}
-    try:
-        res = supabase.table('project_reports').select('*').execute()
-        updates = {}
-        for r in (res.data or []):
-            c = normalize_code(r['project_code'])
-            
-            if c not in updates:
-                updates[c] = set()
-            
-            # Check all columns ending in _updated
-            for col, val in r.items():
-                if col.endswith('_updated') and val is True:
-                    original_col = col.replace('_updated', '')
-                    updates[c].add(original_col)
-        return updates
-    except Exception:
-        return {}

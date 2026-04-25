@@ -1,128 +1,75 @@
+-- Timesheet Application Database Schema
+-- Compatible with PostgreSQL / Supabase
+
 -- 1. Employee Table
-CREATE TABLE employee (
-    employee_id   VARCHAR(50) PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS employee (
+    employee_id VARCHAR(50) PRIMARY KEY,
     employee_name VARCHAR(255) NOT NULL,
-    slack_id      VARCHAR(100)
+    slack_id VARCHAR(100)
 );
 
 -- 2. Project Table
-CREATE TABLE project (
-    id             SERIAL PRIMARY KEY,
-    project_code   VARCHAR(50) UNIQUE NOT NULL,
-    project_name   VARCHAR(255) NOT NULL,
-    lead_engineer  VARCHAR(255),
-    priority       VARCHAR(50),
-    start_date     DATE,
-    end_date       DATE,
-    status         VARCHAR(50) DEFAULT 'In progress',
-    phase          VARCHAR(100),
-    trello_link    TEXT,
-    prototype_link TEXT
+CREATE TABLE IF NOT EXISTS project (
+    project_code VARCHAR(50) PRIMARY KEY,
+    project_name VARCHAR(255) NOT NULL, -- Encrypted in application logic
+    status VARCHAR(50) DEFAULT 'In progress',
+    priority VARCHAR(50),
+    lead_engineer VARCHAR(255),
+    trello_link TEXT
 );
 
 -- 3. Users Table
-CREATE TABLE users (
-    id              SERIAL PRIMARY KEY,
-    employee_id     VARCHAR(50) UNIQUE REFERENCES employee(employee_id) ON DELETE CASCADE,
-    username        VARCHAR(100) UNIQUE NOT NULL,
-    password        TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    employee_id VARCHAR(50) UNIQUE REFERENCES employee(employee_id) ON DELETE CASCADE,
+    username VARCHAR(100) UNIQUE NOT NULL,
+    password TEXT NOT NULL, -- Encrypted/Hashed in application logic
     failed_attempts INT DEFAULT 0,
-    locked_until    TIMESTAMP WITH TIME ZONE
+    locked_until TIMESTAMP WITH TIME ZONE
 );
 
 -- 4. Timesheet Table
-CREATE TABLE timesheet (
-    id             SERIAL PRIMARY KEY,
-    emp_id         VARCHAR(50) REFERENCES employee(employee_id) ON DELETE CASCADE,
-    emp_name       VARCHAR(255),
-    project_code   VARCHAR(50) REFERENCES project(project_code) ON DELETE SET NULL,
-    project_name   VARCHAR(255),
-    date           DATE NOT NULL,
-    hours          FLOAT NOT NULL,
-    phase          VARCHAR(100),
+CREATE TABLE IF NOT EXISTS timesheet (
+    id SERIAL PRIMARY KEY,
+    emp_id VARCHAR(50) REFERENCES employee(employee_id) ON DELETE CASCADE,
+    emp_name VARCHAR(255), -- Denormalized for convenience
+    project_code VARCHAR(50) REFERENCES project(project_code) ON DELETE SET NULL,
+    project_name VARCHAR(255), -- Denormalized and Encrypted
+    date DATE NOT NULL,
+    hours FLOAT NOT NULL,
+    "Phase" VARCHAR(20),
     project_status VARCHAR(50)
 );
 
--- 5. Project-Employee Assignment Table
-CREATE TABLE project_employee (
-    employee_id  VARCHAR(50) REFERENCES employee(employee_id) ON DELETE CASCADE,
+-- 5. Project-Employee Assignment Table (Junction)
+CREATE TABLE IF NOT EXISTS project_employee (
+    employee_id VARCHAR(50) REFERENCES employee(employee_id) ON DELETE CASCADE,
     project_code VARCHAR(50) REFERENCES project(project_code) ON DELETE CASCADE,
     PRIMARY KEY (employee_id, project_code)
 );
 
--- 6. Project Reports Table (with change tracking)
-CREATE TABLE project_reports (
-    id                     SERIAL PRIMARY KEY,
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_timesheet_emp_id ON timesheet(emp_id);
+CREATE INDEX IF NOT EXISTS idx_timesheet_project_code ON timesheet(project_code);
+CREATE INDEX IF NOT EXISTS idx_timesheet_date ON timesheet(date);
 
-    -- Project Code
-    project_code           VARCHAR(50) REFERENCES project(project_code) ON DELETE CASCADE,
-    project_code_updated   BOOLEAN DEFAULT FALSE,
+-- Note: Admin user is typically initialized via the application's init_db() function.
+-- The following are manual initialization snippets if needed:
+/*
+INSERT INTO employee (employee_id, employee_name) 
+VALUES ('admin', 'System Administrator')
+ON CONFLICT (employee_id) DO NOTHING;
 
-    -- Project Name
-    project_name           VARCHAR(255),
-    project_name_updated   BOOLEAN DEFAULT FALSE,
-
-    -- Lead Engineer
-    lead_engineer          VARCHAR(255),
-    lead_engineer_updated  BOOLEAN DEFAULT FALSE,
-
-    -- Priority
-    priority               VARCHAR(50),
-    priority_updated       BOOLEAN DEFAULT FALSE,
-
-    -- Start Date
-    start_date             DATE,
-    start_date_updated     BOOLEAN DEFAULT FALSE,
-
-    -- End Date
-    end_date               DATE,
-    end_date_updated       BOOLEAN DEFAULT FALSE,
-
-    -- Status
-    status                 VARCHAR(50) DEFAULT 'In progress',
-    status_updated         BOOLEAN DEFAULT FALSE,
-
-    -- Phase
-    phase                  VARCHAR(100),
-    phase_updated          BOOLEAN DEFAULT FALSE,
-
-    -- Trello
-    trello_link            TEXT,
-    trello_link_updated    BOOLEAN DEFAULT FALSE,
-
-    -- Prototype
-    prototype_link         TEXT,
-    prototype_link_updated BOOLEAN DEFAULT FALSE,
-
-    -- Timestamps
-    created_at             TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at             TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
+INSERT INTO users (employee_id, username, password)
+VALUES ('admin', 'admin', 'YOUR_ENCRYPTED_PASSWORD_HERE')
+ON CONFLICT (username) DO NOTHING;
+*/
 
 -- ==========================================
--- STEP 3: AUTO-UPDATE TIMESTAMP TRIGGER
+-- UPDATE SCRIPT TO ADD NEW PROJECT COLUMNS
+-- Run this manually in Supabase SQL Editor:
 -- ==========================================
-CREATE OR REPLACE FUNCTION update_timestamp()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trigger_project_reports_updated_at
-BEFORE UPDATE ON project_reports
-FOR EACH ROW
-EXECUTE FUNCTION update_timestamp();
-
-
--- ==========================================
--- STEP 4: INDEXES FOR PERFORMANCE
--- ==========================================
-CREATE INDEX idx_timesheet_emp_id          ON timesheet(emp_id);
-CREATE INDEX idx_timesheet_project_code    ON timesheet(project_code);
-CREATE INDEX idx_timesheet_date            ON timesheet(date);
-CREATE INDEX idx_project_status            ON project(status);
-CREATE INDEX idx_project_lead_engineer     ON project(lead_engineer);
-CREATE INDEX idx_project_reports_code      ON project_reports(project_code);
+-- ALTER TABLE project 
+-- ADD COLUMN priority VARCHAR(50),
+-- ADD COLUMN lead_engineer VARCHAR(255),
+-- ADD COLUMN trello_link TEXT;

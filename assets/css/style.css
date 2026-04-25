@@ -130,56 +130,26 @@ div[data-testid="stHorizontalBlock"] {
     white-space: nowrap !important;
 }
 
-.stButton>button[kind="secondary"],
-[data-testid="stDownloadButton"] button {
-    background-color: white !important;
-    color: #475569 !important;
-    border: 1px solid #e2e8f0 !important;
-    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
-}
-
-.stButton>button[kind="secondary"]:hover,
-[data-testid="stDownloadButton"] button:hover {
-    background-color: #f8fafc !important;
-    border-color: #cbd5e1 !important;
-    color: #1e293b !important;
-}
-
 .stButton>button[kind="primary"],
 .stFormSubmitButton>button,
+[data-testid="stDownloadButton"] button[kind="primary"],
 button[kind="primary"] {
     background-color: #2563EB !important;
     color: white !important;
     border: none !important;
-    box-shadow: 0 1px 3px 0 rgba(37, 99, 235, 0.4) !important;
 }
 
 .stButton>button[kind="primary"]:hover,
 .stFormSubmitButton>button:hover,
+[data-testid="stDownloadButton"] button[kind="primary"]:hover,
 button[kind="primary"]:hover {
     background-color: #1D4ED8 !important;
-    box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.5) !important;
 }
 
-/* Header Alignment */
-.header-container {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
-    gap: 15px;
-}
-
-.header-title-section {
-    flex: 1;
-    min-width: 250px;
-}
-
-.header-button-section {
-    display: flex;
-    gap: 12px;
-    align-items: flex-end;
+.stButton>button[kind="secondary"]:hover {
+    background-color: #EFF6FF !important;
+    border-color: #2563EB !important;
+    color: #2563EB !important;
 }
 
 /* Filter Info Box */

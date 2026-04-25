@@ -125,13 +125,14 @@ def render_sidebar(user):
 
         # --- Navigation Menu using radio ---
         if user["role"] == "admin":
-            options = ["📋  Timesheet", "🏢  Project", "👥  Employee", "📊  Report", "📥  Import"]
+            options = ["📋  Timesheet", "🏢  Project", "📝  Project Update", "👥  Employee", "📊  Report", "📥  Import"]
         else:
-            options = ["📋  Timesheet", "🏢  Project"]
+            options = ["📋  Timesheet", "🏢  Project", "📝  Project Update"]
 
         page_map = {
             "📋  Timesheet": "Timesheet Entries",
             "🏢  Project": "Projects",
+            "📝  Project Update": "Project Update",
             "👥  Employee": "Employees",
             "📊  Report": "Reports",
             "📥  Import": "Import Data",

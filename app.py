@@ -8,6 +8,7 @@ from pages.projects_page import render_projects_page
 from pages.employees_page import render_employees_page
 from pages.reports_page import render_reports_page
 from pages.import_page import render_import_page
+from pages.project_update_page_v2 import render_project_update_page_v2
 from config.constants import PAGE_CONFIG
 
 # 1. Page Config
@@ -63,3 +64,4 @@ else:
     elif page == "Employees": render_employees_page(user)
     elif page == "Reports": render_reports_page(user)
     elif page == "Import Data": render_import_page()
+    elif page == "Project Update": render_project_update_page_v2()

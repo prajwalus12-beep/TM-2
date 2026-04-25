@@ -141,18 +141,17 @@ def get_session_metadata():
     except:
         return {"ua": "unknown", "ip": "127.0.0.1"}
 
-def create_session_token(user_data, refreshes=10):
-    """Create an encrypted session token with expiration, device binding, and refresh limit."""
+def create_session_token(user_data):
+    """Create an encrypted session token with expiration and device binding."""
     try:
         f = get_fernet()
         if f:
             meta = get_session_metadata()
             payload = {
                 "user": user_data,
-                "exp": (datetime.utcnow() + timedelta(days=7)).timestamp(), # Increased to 7 days
+                "exp": (datetime.utcnow() + timedelta(hours=24)).timestamp(),
                 "ua": meta["ua"],
-                "ip": meta["ip"],
-                "refreshes": refreshes # Initial refresh allowance
+                "ip": meta["ip"]
             }
             return f.encrypt(json.dumps(payload).encode()).decode()
     except:
@@ -160,7 +159,7 @@ def create_session_token(user_data, refreshes=10):
     return None
 
 def restore_session_from_token(token):
-    """Verify and decrypt a session token. Returns (user_data, refreshes_left)."""
+    """Verify and decrypt a session token."""
     try:
         f = get_fernet()
         if f:
@@ -168,22 +167,22 @@ def restore_session_from_token(token):
             
             # 1. Check expiration
             if datetime.utcnow().timestamp() > payload.get("exp", 0):
-                return None, 0
+                return None
             
             # 2. Check Device Binding (User-Agent must match)
             meta = get_session_metadata()
             if payload.get("ua") != meta["ua"]:
-                return None, 0
+                return None
             
-            # 3. Check Refresh Count
-            refreshes = payload.get("refreshes", 0)
-            if refreshes <= 0:
-                return None, 0
+            # 3. Check IP (only if not localhost)
+            # Note: IP can be prone to change, so we mostly rely on UA + Exp
+            # if meta["ip"] != "127.0.0.1" and payload.get("ip") != meta["ip"]:
+            #     return None
                 
-            return payload.get("user"), refreshes
+            return payload.get("user")
     except:
         pass
-    return None, 0
+    return None
 
 def logout_user():
     for key in list(st.session_state.keys()): del st.session_state[key]
@@ -199,22 +198,14 @@ def check_login():
     if not st.session_state["user"]:
         token = st.query_params.get("session")
         if token:
-            user_data, refreshes_left = restore_session_from_token(token)
+            user_data = restore_session_from_token(token)
             if user_data:
                 st.session_state["logged_in"] = True
                 st.session_state["user"] = user_data
-                
-                # Update token with decremented refresh count
-                new_refreshes = refreshes_left - 1
-                if new_refreshes > 0:
-                    new_token = create_session_token(user_data, refreshes=new_refreshes)
-                    if new_token:
-                        st.query_params["session"] = new_token
-                else:
-                    # No refreshes left — clear it
-                    st.query_params.clear()
+                # Clear token from URL to prevent easy copying/sharing
+                st.query_params.clear()
             else:
-                # Invalid/expired token — clear it
+                # Invalid/expired/tampered token — clear it
                 st.query_params.clear()
 
     return st.session_state["user"]
