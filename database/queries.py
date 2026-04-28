@@ -390,15 +390,21 @@ def import_project_updates(df):
     if not supabase: return False, "Configuration error"
     
     try:
-        existing_res = supabase.table('project_reports').select('project_code').execute()
-        existing_codes = {r['project_code'] for r in (existing_res.data or [])}
+        # Fetch existing records for comparison (only the fields we need to diff)
+        existing_res = supabase.table('project_reports').select(
+            'project_code, project_name, lead_engineer, priority, status, trello_link'
+        ).execute()
+        existing_map = {r['project_code']: r for r in (existing_res.data or [])}
         
         inserts = []
         updates = []
+        resets = []   # records that match import — clear all *_updated flags
         for _, row in df.iterrows():
             code = str(row.get('Job No') or row.get('Project Code') or '')
-            if not code or code.lower() == 'nan': continue
+            if not code or code.lower() == 'nan':
+                continue
             
+            # Build record with default flags set to False
             record = {
                 "project_code": code,
                 "project_name": str(row.get('Project', '')),
@@ -419,19 +425,55 @@ def import_project_updates(df):
             }
             clean_record = _sanitize_dict(record)
             
-            if code in existing_codes:
-                updates.append(clean_record)
+            if code in existing_map:
+                # Compare with existing record to see if any field changed
+                existing = existing_map[code]
+                changes = []
+                # Compare each relevant field
+                if clean_record.get('project_name') != existing.get('project_name'):
+                    changes.append('project_name')
+                if clean_record.get('lead_engineer') != existing.get('lead_engineer'):
+                    changes.append('lead_engineer')
+                if clean_record.get('priority') != existing.get('priority'):
+                    changes.append('priority')
+                if clean_record.get('status') != existing.get('status'):
+                    changes.append('status')
+                if clean_record.get('trello_link') != existing.get('trello_link'):
+                    changes.append('trello_link')
+                if changes:
+                    # Mark updated flags for changed columns only
+                    for col in changes:
+                        clean_record[f"{col}_updated"] = True
+                    updates.append(clean_record)
+                else:
+                    # No field changes → import confirms data matches; clear any existing highlight flags
+                    resets.append(code)
             else:
-                clean_record["phase"] = "Analysis" # Default for new inserts
+                # New record – set a default phase and mark as insert
+                clean_record["phase"] = "Analysis"
                 inserts.append(clean_record)
-            
         if inserts:
             supabase.table('project_reports').insert(inserts).execute()
-            
-        for u in updates:
-            supabase.table('project_reports').update(u).eq('project_code', u['project_code']).execute()
-            
-        return True, f"Successfully imported {len(inserts)} new and updated {len(updates)} projects."
+        if updates:
+            for u in updates:
+                supabase.table('project_reports').update(u).eq('project_code', u['project_code']).execute()
+        if resets:
+            # Clear all *_updated flags for records that exactly match the imported sheet
+            # Use a single batched call instead of per-record loop to avoid socket exhaustion
+            reset_payload = {
+                "project_code_updated": False,
+                "project_name_updated": False,
+                "lead_engineer_updated": False,
+                "priority_updated": False,
+                "status_updated": False,
+                "trello_link_updated": False,
+                "start_date_updated": False,
+                "end_date_updated": False,
+                "phase_updated": False,
+                "prototype_link_updated": False
+            }
+            supabase.table('project_reports').update(reset_payload).in_('project_code', resets).execute()
+        return True, f"Successfully imported {len(inserts)} new, updated {len(updates)} changed, and cleared highlights for {len(resets)} matched project(s)."
     except Exception as e:
         return False, str(e)
 

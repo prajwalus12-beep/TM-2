@@ -3,7 +3,7 @@ import datetime
 import pandas as pd
 import io
 import openpyxl
-from database.queries import get_timesheets, get_all_employees, get_all_projects, delete_timesheet_entry
+from database.queries import get_timesheets, get_all_employees, get_all_projects, delete_timesheet_entry, add_timesheet_entry
 from components.dialogs import entry_form_dialog, edit_form_dialog
 from utils.date_helpers import get_curr_cycle_dates
 
@@ -178,7 +178,7 @@ def render_timesheet_page(user):
                     '<div style="flex: 1.5;">Status</div>'
                     '<div style="flex: 1.2;">Phases</div>'
                     '<div style="flex: 0.8;">Hours</div>'
-                    '<div style="flex: 1.5;">Action</div>'
+                    '<div style="flex: 2.5;">Action</div>'
                     '</div>', unsafe_allow_html=True)
 
         start_of_week = today - datetime.timedelta(days=today.weekday())
@@ -187,7 +187,7 @@ def render_timesheet_page(user):
         phase_labels = {"1": "Analysis", "2": "Design", "3": "Development", "4": "Testing", "5": "Deployement", "6": "Support"}
         for _, row in subset.iterrows():
             st.markdown('<div class="table-row">', unsafe_allow_html=True)
-            c_date, c_empcode, c_empname, c_projcode, c_projname, c_status, c_phase, c_hour, c_action = st.columns([1.5, 1, 2, 1, 3, 1.5, 1.2, 0.8, 1.5])
+            c_date, c_empcode, c_empname, c_projcode, c_projname, c_status, c_phase, c_hour, c_action = st.columns([1.5, 1, 2, 1, 3, 1.5, 1.2, 0.8, 2.5])
             r_date = row['date']
             if isinstance(r_date, str): r_date = datetime.datetime.strptime(r_date, '%Y-%m-%d').date()
             c_date.markdown(f'<div class="table-cell date-cell"><b>{r_date.strftime("%d-%m-%Y")}</b></div>', unsafe_allow_html=True)
@@ -203,13 +203,48 @@ def render_timesheet_page(user):
             c_hour.markdown(f'<div class="table-cell">{row["hours"]:.2f}</div>', unsafe_allow_html=True)
             
             with c_action:
+                # Always show Duplicate button
+                # If editable, show edit/delete as well
                 if start_of_week <= r_date <= end_of_week:
-                    ce, cd = st.columns(2)
-                    if ce.button("✏️", key=f"edit_{row['id']}"): edit_form_dialog(row.to_dict(), emp_labels, current_emp_id, user["role"])
-                    if cd.button("🗑️", key=f"del_{row['id']}"):
-                        delete_timesheet_entry(row['id'])
-                        st.rerun()
-                else: st.markdown('<div style="text-align: center; color: #94a3b8;">🔒</div>', unsafe_allow_html=True)
+                    # Use 3 equal narrow columns so buttons never wrap
+                    ce, cd, cp = st.columns([1, 1, 1], gap="small")
+                    with ce:
+                        if st.button("✏️", key=f"edit_{row['id']}", use_container_width=True, help="Edit"):
+                            edit_form_dialog(row.to_dict(), emp_labels, current_emp_id, user["role"])
+                    with cd:
+                        if st.button("🗑️", key=f"del_{row['id']}", use_container_width=True, help="Delete"):
+                            delete_timesheet_entry(row['id'])
+                            st.rerun()
+                    with cp:
+                        if st.button("👯", key=f"dup_{row['id']}", use_container_width=True, help="Duplicate Entry"):
+                            add_timesheet_entry(
+                                row['emp_id'],
+                                row['emp_name'],
+                                row['project_code'],
+                                row['project_name'],
+                                row['date'],
+                                row['hours'],
+                                row['Phase'],
+                                row['project_status']
+                            )
+                            st.rerun()
+                else:
+                    cl, cp = st.columns([1, 1], gap="small")
+                    with cl:
+                        st.markdown('<div style="text-align:center;color:#94a3b8;line-height:2.4;">🔒</div>', unsafe_allow_html=True)
+                    with cp:
+                        if st.button("👯", key=f"dup_{row['id']}", use_container_width=True, help="Duplicate Entry"):
+                            add_timesheet_entry(
+                                row['emp_id'],
+                                row['emp_name'],
+                                row['project_code'],
+                                row['project_name'],
+                                row['date'],
+                                row['hours'],
+                                row['Phase'],
+                                row['project_status']
+                            )
+                            st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         

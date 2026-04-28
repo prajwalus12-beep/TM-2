@@ -199,6 +199,50 @@
 }
 .pu-clear-btn:hover { background-color: #e2e8f0; }
 
+/* Updated Records toggle */
+.pu-filter-group--full {
+  grid-column: 1 / -1;
+}
+
+.pu-updated-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #475569;
+  cursor: pointer;
+  transition: all 150ms;
+  width: fit-content;
+}
+.pu-updated-toggle:hover {
+  border-color: #f59e0b;
+  background-color: #fffbeb;
+  color: #92400e;
+}
+.pu-updated-toggle.active {
+  background-color: #fef3c7;
+  border-color: #f59e0b;
+  color: #92400e;
+  font-weight: 600;
+}
+
+.pu-updated-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #cbd5e1;
+  transition: background-color 150ms;
+}
+.pu-updated-toggle.active .pu-updated-dot {
+  background-color: #f59e0b;
+}
+
 /* ===== Table ===== */
 .pu-table-wrapper {
   background-color: #fff;

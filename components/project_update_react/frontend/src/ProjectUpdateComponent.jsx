@@ -13,7 +13,14 @@ function ProjectUpdateComponent(props) {
   const statusOptions = args.status_options || ["In progress", "Complete", "On hold", "Cancelled"];
 
   // Local working copy of projects
-  const [projects, setProjects] = useState(serverProjects);
+  const [projects, setProjects] = useState(() => {
+    // Sort initially based on the numeric value of project_code descending
+    return [...serverProjects].sort((a, b) => {
+      const codeA = parseInt((a.project_code || "0").replace(/\\D/g, ""), 10) || 0;
+      const codeB = parseInt((b.project_code || "0").replace(/\\D/g, ""), 10) || 0;
+      return codeB - codeA;
+    });
+  });
 
   // Sync when Python sends new data (e.g., after a save)
   const prevServerRef = useRef(null);
@@ -21,7 +28,12 @@ function ProjectUpdateComponent(props) {
     const newKey = JSON.stringify(serverProjects);
     if (prevServerRef.current !== newKey) {
       prevServerRef.current = newKey;
-      setProjects(serverProjects);
+      const sorted = [...serverProjects].sort((a, b) => {
+        const codeA = parseInt((a.project_code || "0").replace(/\\D/g, ""), 10) || 0;
+        const codeB = parseInt((b.project_code || "0").replace(/\\D/g, ""), 10) || 0;
+        return codeB - codeA;
+      });
+      setProjects(sorted);
     }
   }, [serverProjects]);
 
@@ -33,11 +45,18 @@ function ProjectUpdateComponent(props) {
   const [filterPriority, setFilterPriority] = useState("");
   const [filterPhase, setFilterPhase] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  const [filterUpdatedOnly, setFilterUpdatedOnly] = useState(false);
 
   // Adjust iframe height after each render
   useEffect(() => { Streamlit.setFrameHeight(); });
 
   // ---- Filtering ----
+  const updatedFlagKeys = [
+    "project_name_updated", "lead_engineer_updated", "priority_updated",
+    "status_updated", "trello_link_updated", "start_date_updated",
+    "end_date_updated", "phase_updated", "prototype_link_updated"
+  ];
+
   const filteredProjects = useMemo(() => {
     return projects.filter((p) => {
       if (filterName && !(p.project_name || "").toLowerCase().includes(filterName.toLowerCase())) return false;
@@ -48,13 +67,20 @@ function ProjectUpdateComponent(props) {
       if (filterPriority && (p.priority || "").toUpperCase() !== filterPriority.toUpperCase()) return false;
       if (filterPhase && p.phase !== filterPhase) return false;
       if (filterStatus && p.status !== filterStatus) return false;
+      if (filterUpdatedOnly) {
+        const hasUpdate = updatedFlagKeys.some(
+          (k) => p[k] === true || p[k] === "true" || p[k] === "True"
+        );
+        if (!hasUpdate) return false;
+      }
       return true;
     });
-  }, [projects, filterName, filterCodeMin, filterCodeMax, filterLead, filterPriority, filterPhase, filterStatus]);
+  }, [projects, filterName, filterCodeMin, filterCodeMax, filterLead, filterPriority, filterPhase, filterStatus, filterUpdatedOnly]);
 
   const resetFilters = () => {
     setFilterName(""); setFilterCodeMin(""); setFilterCodeMax("");
     setFilterLead(""); setFilterPriority(""); setFilterPhase(""); setFilterStatus("");
+    setFilterUpdatedOnly(false);
   };
 
   // ---- Infinite Scroll ----
@@ -263,6 +289,19 @@ function ProjectUpdateComponent(props) {
                 </select>
                 <button className="pu-clear-btn" onClick={resetFilters} title="Clear all filters">Clear</button>
               </div>
+            </div>
+
+            {/* Updated Records toggle */}
+            <div className="pu-filter-group pu-filter-group--full">
+              <label className="pu-filter-label">Quick Filter</label>
+              <button
+                className={`pu-updated-toggle${filterUpdatedOnly ? " active" : ""}`}
+                onClick={() => setFilterUpdatedOnly((v) => !v)}
+                title="Show only rows with highlighted (updated) fields"
+              >
+                <span className="pu-updated-dot" />
+                Updated Records Only
+              </button>
             </div>
 
           </div>

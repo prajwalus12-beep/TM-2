@@ -22,6 +22,20 @@ def _generate_excel_buffer(df):
         'prototype_link': 'Prototype'
     }
     clean_df = df.copy()
+    
+    # Format 'priority' for export (e.g. 1.0 -> 1)
+    if 'priority' in clean_df.columns:
+        def _fmt_priority(v):
+            if pd.isna(v): return v
+            try:
+                f_val = float(v)
+                if f_val == int(f_val):
+                    return int(f_val)
+                return f_val
+            except (ValueError, TypeError):
+                return v
+        clean_df['priority'] = clean_df['priority'].apply(_fmt_priority)
+
     clean_df = clean_df.rename(columns=export_cols_map)
     export_cols = [c for c in export_cols_map.values() if c in clean_df.columns]
 
@@ -101,7 +115,18 @@ def render_project_update_page_v2():
             elif isinstance(val, bool):
                 record[col] = val
             else:
-                record[col] = str(val) if val is not None else None
+                # Format Priority to remove .0 from whole numbers (e.g. 1.0 -> 1)
+                if col == 'priority' and val is not None:
+                    try:
+                        f_val = float(val)
+                        if f_val == int(f_val):
+                            record[col] = str(int(f_val))
+                        else:
+                            record[col] = str(val)
+                    except (ValueError, TypeError):
+                        record[col] = str(val)
+                else:
+                    record[col] = str(val) if val is not None else None
         projects_list.append(record)
 
     # Extract unique lead engineers
