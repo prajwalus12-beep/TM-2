@@ -3,12 +3,13 @@ import streamlit as st
 import pandas as pd
 import io
 import datetime
+from openpyxl.styles import PatternFill
 from database.queries import get_project_reports, save_project_updates
 from components.project_update_react import project_update_component
 
 
-def _generate_excel_buffer(df):
-    """Generate an Excel buffer for the given DataFrame."""
+def _generate_excel_buffer(df, highlight_updated=False):
+    """Generate an Excel buffer for the given DataFrame, highlighting updated cells."""
     export_cols_map = {
         'project_code': 'Job No',
         'priority': 'Job Priority',
@@ -36,12 +37,26 @@ def _generate_excel_buffer(df):
                 return v
         clean_df['priority'] = clean_df['priority'].apply(_fmt_priority)
 
-    clean_df = clean_df.rename(columns=export_cols_map)
-    export_cols = [c for c in export_cols_map.values() if c in clean_df.columns]
+    # Filter only available columns mapped for export
+    export_cols_keys = [k for k in export_cols_map.keys() if k in clean_df.columns]
+    renamed_df = clean_df[export_cols_keys].rename(columns=export_cols_map)
 
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        clean_df[export_cols].to_excel(writer, index=False)
+        renamed_df.to_excel(writer, index=False, sheet_name='Updated Projects')
+        
+        if highlight_updated:
+            worksheet = writer.sheets['Updated Projects']
+            yellow_fill = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+            
+            # Apply highlight to specific updated cells
+            for row_idx in range(len(clean_df)):
+                for col_idx, key in enumerate(export_cols_keys):
+                    flag_col = f"{key}_updated"
+                    if flag_col in clean_df.columns and clean_df.iloc[row_idx][flag_col] == True:
+                        # Row + 2 (1 for header, 1 for 0-index), Col + 1
+                        cell = worksheet.cell(row=row_idx + 2, column=col_idx + 1)
+                        cell.fill = yellow_fill
     
     return buffer.getvalue()
 
@@ -72,14 +87,14 @@ def export_dialog(df):
         updated_cols = [c for c in df.columns if c.endswith('_updated')]
         if updated_cols:
             updated_mask = df[updated_cols].any(axis=1)
-            updated_df = df[updated_mask]
+            updated_df = df[updated_mask].reset_index(drop=True)
         else:
             updated_df = pd.DataFrame(columns=df.columns)
             
         st.caption(f"Export only the {len(updated_df)} modified projects")
         
         # If there are no updated records, disable the button
-        buffer_updated = _generate_excel_buffer(updated_df) if not updated_df.empty else b""
+        buffer_updated = _generate_excel_buffer(updated_df, highlight_updated=True) if not updated_df.empty else b""
         st.download_button(
             "📥 Download Updated",
             data=buffer_updated,

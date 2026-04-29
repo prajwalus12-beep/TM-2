@@ -441,9 +441,8 @@ def import_project_updates(df):
                 if clean_record.get('trello_link') != existing.get('trello_link'):
                     changes.append('trello_link')
                 if changes:
-                    # Mark updated flags for changed columns only
-                    for col in changes:
-                        clean_record[f"{col}_updated"] = True
+                    # Import is restoring canonical data — clear ALL highlight
+                    # flags instead of setting them (this is not a manual edit).
                     updates.append(clean_record)
                 else:
                     # No field changes → import confirms data matches; clear any existing highlight flags
