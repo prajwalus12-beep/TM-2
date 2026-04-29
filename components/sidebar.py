@@ -125,9 +125,12 @@ def render_sidebar(user):
 
         # --- Navigation Menu using radio ---
         if user["role"] == "admin":
-            options = ["📋  Timesheet", "🏢  Project", "📝  Project Update", "👥  Employee", "📊  Report", "📥  Import"]
+            options = ["📋  Timesheet", "🏢  Project", "📝  Project Update", "👥  Employee", "📊  Report", "📥  Import", "⚙️  Settings"]
         else:
-            options = ["📋  Timesheet", "🏢  Project", "📝  Project Update"]
+            options = ["📋  Timesheet", "🏢  Project"]
+            # Only show Project Update if specifically granted access
+            if user.get("project_update_access"):
+                options.insert(2, "📝  Project Update")
 
         page_map = {
             "📋  Timesheet": "Timesheet Entries",
@@ -136,6 +139,7 @@ def render_sidebar(user):
             "👥  Employee": "Employees",
             "📊  Report": "Reports",
             "📥  Import": "Import Data",
+            "⚙️  Settings": "Settings",
         }
         reverse_map = {v: k for k, v in page_map.items()}
 

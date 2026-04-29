@@ -34,11 +34,18 @@ def get_user_by_username(username):
     supabase = get_supabase_client()
     if not supabase: return None
     
-    res = supabase.table('users').select('id, employee_id, username, password, failed_attempts, locked_until').eq('username', username).execute()
+    try:
+        # Try fetching with the new column
+        res = supabase.table('users').select('id, employee_id, username, password, failed_attempts, locked_until, employee:employee(project_update_access)').eq('username', username).execute()
+    except Exception:
+        # Fallback if column doesn't exist
+        res = supabase.table('users').select('id, employee_id, username, password, failed_attempts, locked_until').eq('username', username).execute()
+        
     data = res.data
     if data:
         u = data[0]
-        return (u['id'], u['employee_id'], u['username'], u['password'], u['failed_attempts'], u['locked_until'])
+        emp = u.get('employee') or {}
+        return (u['id'], u['employee_id'], u['username'], u['password'], u['failed_attempts'], u['locked_until'], emp.get('project_update_access', False))
     return None
 
 def update_user_lockout(username, failed_attempts, locked_until=None):
@@ -58,12 +65,16 @@ def update_user_lockout(username, failed_attempts, locked_until=None):
 def get_all_users():
     """Fetch all users with their details using Supabase SDK join-like approach."""
     supabase = get_supabase_client()
-    if not supabase: return pd.DataFrame(columns=['id', 'username', 'employee_name', 'slack_id', 'password'])
+    if not supabase: return pd.DataFrame(columns=['id', 'username', 'employee_name', 'slack_id', 'password', 'project_update_access', 'employee_id'])
     
-    # Supabase allows embedding related tables if relationships are defined in DB
-    res = supabase.table('users').select('id, username, password, employee:employee(employee_name, slack_id)').order('username').execute()
+    try:
+        # Try fetching with the new column
+        res = supabase.table('users').select('id, username, employee_id, password, employee:employee(employee_name, slack_id, project_update_access)').order('username').execute()
+    except Exception:
+        # Fallback if column doesn't exist yet
+        res = supabase.table('users').select('id, username, employee_id, password, employee:employee(employee_name, slack_id)').order('username').execute()
+    
     data = res.data or []
-    
     rows = []
     for r in data:
         emp = r.get('employee') or {}
@@ -72,10 +83,12 @@ def get_all_users():
             r['username'],
             emp.get('employee_name'),
             emp.get('slack_id'),
-            r['password']
+            r['password'],
+            emp.get('project_update_access', False), # Defaults to False if missing
+            r['employee_id']
         ])
     
-    return pd.DataFrame(rows, columns=['id', 'username', 'employee_name', 'slack_id', 'password'])
+    return pd.DataFrame(rows, columns=['id', 'username', 'employee_name', 'slack_id', 'password', 'project_update_access', 'employee_id'])
 
 def get_employee_by_id(emp_id):
     """Fetch single employee details using Supabase SDK."""
@@ -507,6 +520,17 @@ def save_project_updates(edited_rows_dict, current_df):
     except Exception as e:
         return False, str(e)
 
+def update_project_update_access(employee_id, has_access):
+    """Update an employee's access to the project update page."""
+    supabase = get_supabase_client()
+    if not supabase: return False, "Configuration error"
+    
+    try:
+        supabase.table('employee').update({'project_update_access': has_access}).eq('employee_id', employee_id).execute()
+        return True, "Success"
+    except Exception as e:
+        return False, str(e)
+
 def init_db():
     """Initialize system admin if missing using Supabase SDK."""
     supabase = get_supabase_client()
@@ -516,10 +540,11 @@ def init_db():
         from services.auth_service import FIXED_PASSWORD
         enc_pwd = encrypt_data(FIXED_PASSWORD)
         
-        # 1. UPSERT admin employee
+        # 1. UPSERT admin employee (admins always have access)
         supabase.table('employee').upsert({
             "employee_id": "admin", 
-            "employee_name": "System Administrator"
+            "employee_name": "System Administrator",
+            "project_update_access": True
         }).execute()
         
         # 2. UPSERT admin user

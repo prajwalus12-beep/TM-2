@@ -86,7 +86,7 @@ def login_user(username, password):
     from database.queries import get_user_by_username, update_user_lockout
     user_record = get_user_by_username(username)
     if user_record:
-        uid, emp_id, uname, db_pw, failed, locked_until = user_record
+        uid, emp_id, uname, db_pw, failed, locked_until, access = user_record
         
         # Convert string timestamp to datetime object if needed
         if isinstance(locked_until, str):
@@ -105,8 +105,13 @@ def login_user(username, password):
         
         if verify_password(password, db_pw):
             if failed > 0: update_user_lockout(username, 0, None)
-            return {"id": uid, "employee_id": emp_id, "username": uname, 
-                    "role": "admin" if uname in ["admin", "System Administrator"] else "employee"}
+            return {
+                "id": uid, 
+                "employee_id": emp_id, 
+                "username": uname, 
+                "role": "admin" if uname in ["admin", "System Administrator"] else "employee",
+                "project_update_access": user_record[6] if len(user_record) > 6 else False
+            }
         else:
             new_failed = failed + 1
             lockout = datetime.utcnow() + timedelta(minutes=15) if new_failed >= 5 else None
